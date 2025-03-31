@@ -1,0 +1,2 @@
+# gamjang
+Gambling.
