@@ -50,6 +50,7 @@ func ptr(s string) *string {
 }
 
 var (
+	minBet   = float64(1)
 	commands = []*discordgo.ApplicationCommand{
 		{
 			Name: "balance",
@@ -67,6 +68,7 @@ var (
 					Description: "Bet amount",
 					Type:        discordgo.ApplicationCommandOptionInteger,
 					Required:    true,
+					MinValue:    &minBet,
 				},
 			},
 		},
@@ -79,6 +81,7 @@ var (
 					Description: "Bet amount",
 					Type:        discordgo.ApplicationCommandOptionInteger,
 					Required:    true,
+					MinValue:    &minBet,
 				},
 				{
 					Name:        "color",
