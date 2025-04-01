@@ -59,7 +59,7 @@ var (
 			// of the command.
 			Description: "Check your balance",
 		},
-		{
+    {
 			Name:        "loan",
 			Description: "Take an instant loan to gamble more! (NOTE: Loans have an interest rate of 15% per day)",
 			Options: []*discordgo.ApplicationCommandOption{
@@ -115,6 +115,19 @@ var (
 							Value: "green",
 						},
 					},
+				},
+			},
+		},
+		{
+			Name:        "slots",
+			Description: "Play slots and WIN BIG 🤑🤑🤑",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "bet",
+					Description: "Bet amount",
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Required:    true,
+					MinValue:    &minBet,
 				},
 			},
 		},
@@ -248,7 +261,54 @@ var (
 
 			return
 		},
-		"loan": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		"slots": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			// Check if the user has enough balance
+			bal, err := db.Get(ctx, i.Member.User.ID).Result()
+			if err != nil {
+				if err != redis.Nil {
+					log.Printf("Error getting balance: %v", err)
+					return
+				}
+				db.Set(ctx, i.Member.User.ID, "150", 0)
+				bal = "150"
+			}
+			balInt, err := strconv.Atoi(bal)
+			if err != nil {
+				log.Printf("Error converting balance to int: %v", err)
+				return
+			}
+			fmt.Printf("User %s has balance %d\n", i.Member.User.ID, balInt)
+			bet := int(i.ApplicationCommandData().Options[0].IntValue())
+			if bet > balInt {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You don't have enough balance to play this game. \n" + footer,
+					},
+				})
+				return
+			}
+
+			balInt -= bet
+			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
+
+			value := "7️⃣7️⃣🍒"
+
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You bet " + renderAmount(bet) +
+						"Spinning...\n\n" +
+						"**Result:**\n# " +
+						value + "\n" +
+						"**You lost! Man, you were so close...**\n" +
+						footer,
+				},
+			})
+
+			return
+		},
+    "loan": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			// Check if the user has enough balance
 			bal, err := db.Get(ctx, i.Member.User.ID).Result()
 			if err != nil {
