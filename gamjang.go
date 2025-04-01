@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
@@ -58,6 +59,10 @@ var (
 			// Commands/options without description will fail the registration
 			// of the command.
 			Description: "Check your balance",
+		},
+		{
+			Name: "fountain",
+			Description: "Claim 50 coins from the fountain (1 hour cooldown)",
 		},
 		{
 			Name:        "blackjack",
@@ -134,6 +139,67 @@ var (
 				},
 			})
 			return
+		},
+		"fountain": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			// Get last claim time
+			lastClaimKey := fmt.Sprintf("fountain:%s", i.Member.User.ID)
+			lastClaim, err := db.Get(ctx, lastClaimKey).Result()
+			if err != nil && err != redis.Nil {
+				log.Printf("Error getting last claim time: %v", err)
+				return
+			}
+
+			// Check if user can claim
+			if err != redis.Nil {
+				lastClaimTime, err := strconv.ParseInt(lastClaim, 10, 64)
+				if err != nil {
+					log.Printf("Error parsing last claim time: %v", err)
+					return
+				}
+				timeSinceLastClaim := time.Now().Unix() - lastClaimTime
+				if timeSinceLastClaim < 3600 { // 1 hour in seconds
+					timeLeft := 3600 - timeSinceLastClaim
+					minutes := timeLeft / 60
+					seconds := timeLeft % 60
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: fmt.Sprintf("You need to wait %d minutes and %d seconds before claiming again.\n%s", minutes, seconds, footer),
+						},
+					})
+					return
+				}
+			}
+
+			// Get current balance
+			bal, err := db.Get(ctx, i.Member.User.ID).Result()
+			if err != nil && err != redis.Nil {
+				log.Printf("Error getting balance: %v", err)
+				return
+			}
+			if err == redis.Nil {
+				db.Set(ctx, i.Member.User.ID, "150", 0)
+				bal = "150"
+			}
+
+			// Add fountain coins
+			balInt, err := strconv.Atoi(bal)
+			if err != nil {
+				log.Printf("Error converting balance to int: %v", err)
+				return
+			}
+			balInt += 50
+
+			// Update balance and last claim time
+			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
+			db.Set(ctx, lastClaimKey, strconv.FormatInt(time.Now().Unix(), 10), 0)
+
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: fmt.Sprintf("You claimed 50 coins from the fountain!\nYour new balance is: %s\n%s", renderAmount(balInt), footer),
+				},
+			})
 		},
 		"blackjack": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			// Check if the user has enough balance
