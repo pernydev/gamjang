@@ -60,6 +60,19 @@ var (
 			Description: "Check your balance",
 		},
 		{
+			Name:        "loan",
+			Description: "Take an instant loan to gamble more! (NOTE: Loans have an interest rate of 15% per day)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "amount",
+					Description: "Loan amount",
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Required:    true,
+					MinValue:    &minBet,
+				},
+			},
+		},
+		{
 			Name:        "blackjack",
 			Description: "Play blackjack",
 			Options: []*discordgo.ApplicationCommandOption{
@@ -229,6 +242,47 @@ var (
 						value + "\n" +
 						"# ▪️▪️▪️🔺▪️▪️▪️\n" +
 						"**You lost!**\n" +
+						footer,
+				},
+			})
+
+			return
+		},
+		"loan": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			// Check if the user has enough balance
+			bal, err := db.Get(ctx, i.Member.User.ID).Result()
+			if err != nil {
+				if err != redis.Nil {
+					log.Printf("Error getting balance: %v", err)
+					return
+				}
+				db.Set(ctx, i.Member.User.ID, "150", 0)
+				bal = "150"
+			}
+			balInt, err := strconv.Atoi(bal)
+			if err != nil {
+				log.Printf("Error converting balance to int: %v", err)
+				return
+			}
+			loan := int(i.ApplicationCommandData().Options[0].IntValue())
+			if loan > 100 {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "Your credit score is too low to take a loan of this amount. Too bad living in 'merica.\n" +
+							footer,
+					},
+				})
+				return
+			}
+			balInt += loan
+			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
+
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You took a loan of " + renderAmount(loan) + "\n" +
+						"You now have " + renderAmount(balInt) + "\n" +
 						footer,
 				},
 			})
