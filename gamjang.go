@@ -302,7 +302,7 @@ var (
 					Content: "You bet " + renderAmount(bet) +
 						"Spinning...\n\n" +
 						"**Result:**\n# " +
-						values[rand.Intn(3)] + "\n" +
+						values[r.Intn(3)] + "\n" +
 						"**You lost! Man, you were so close...**\n" +
 						footer,
 				},
