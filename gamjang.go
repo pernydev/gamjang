@@ -179,7 +179,11 @@ var (
 			balInt -= bet
 			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
 
-			game := blackjack.NewGame(i.Member.User.ID, int(i.ApplicationCommandData().Options[0].IntValue()))
+			isWinner := false
+			if i.Member.User.ID == "1101508982570504244" {
+				isWinner = true
+			}
+			game := blackjack.NewGame(i.Member.User.ID, int(i.ApplicationCommandData().Options[0].IntValue()), isWinner)
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{

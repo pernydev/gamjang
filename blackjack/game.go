@@ -2,6 +2,7 @@ package blackjack
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -15,6 +16,8 @@ type Game struct {
 
 	PlayerStand bool
 	PlayerBust  bool
+
+	IsWinningGame bool
 }
 
 func (g *Game) Render() string {
@@ -31,6 +34,9 @@ func (g *Game) Render() string {
 	output := fmt.Sprintf("\n\n**Your hand:** %s\n**Dealer's hand:** %s\n\n**Bet:** %d <:coin:1356375500632756224>\n", playerHand, dealerHand, g.Bet)
 	if g.PlayerBust {
 		output += "**You busted!**\n"
+	}
+	if g.IsWinningGame {
+		output += "**You won " + strconv.Itoa(g.Bet*10) + " <:coin:1356375500632756224>!**\n"
 	}
 	return output
 }
@@ -95,9 +101,33 @@ func (g *Game) RenderButtons() []discordgo.MessageComponent {
 	}
 }
 
-func NewGame(playerID string, bet int) *Game {
+func NewGame(playerID string, bet int, isWinning bool) *Game {
 	deck := NewDeck()
 	deck.Shuffle()
+
+	if isWinning {
+		playerHand := &Hand{
+			Cards: []Card{
+				{Suit: "Hearts", Value: "J"},
+				{Suit: "Spades", Value: "A"},
+			},
+		}
+		dealerHand := &Hand{
+			Cards: []Card{
+				{Suit: "Hearts", Value: "2"},
+			},
+		}
+		return &Game{
+			Deck:          deck,
+			PlayerID:      playerID,
+			Bet:           bet,
+			PlayerHand:    playerHand,
+			DealerHand:    dealerHand,
+			PlayerStand:   true,
+			PlayerBust:    false,
+			IsWinningGame: true,
+		}
+	}
 
 	playerHand := &Hand{}
 	dealerHand := &Hand{}
@@ -121,7 +151,7 @@ func NewGame(playerID string, bet int) *Game {
 		return nil
 	}
 	if playerHand.Total() == 21 {
-		return NewGame(playerID, bet)
+		return NewGame(playerID, bet, false)
 	}
 	g := &Game{
 		Deck:        deck,
