@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"strconv"
@@ -51,8 +52,15 @@ func ptr(s string) *string {
 }
 
 var (
-	minBet   = float64(1)
-	commands = []*discordgo.ApplicationCommand{
+	minBet = float64(1)
+	// Initialize random seed once at startup
+	randSource = rand.NewSource(time.Now().UnixNano())
+	randGen    = rand.New(randSource)
+	commands   = []*discordgo.ApplicationCommand{
+		{
+			Name:        "help",
+			Description: "Show help information about all commands",
+		},
 		{
 			Name: "balance",
 			// All commands and options must have a description
@@ -61,7 +69,7 @@ var (
 			Description: "Check your balance",
 		},
 		{
-			Name: "fountain",
+			Name:        "fountain",
 			Description: "Claim 50 coins from the fountain (1 hour cooldown)",
 		},
 		{
@@ -89,30 +97,71 @@ var (
 					MinValue:    &minBet,
 				},
 				{
-					Name:        "color",
-					Description: "Bet color",
+					Name:        "type",
+					Description: "Type of bet",
 					Type:        discordgo.ApplicationCommandOptionString,
 					Required:    true,
 					Choices: []*discordgo.ApplicationCommandOptionChoice{
 						{
-							Name:  "Red",
-							Value: "red",
+							Name:  "Single Number",
+							Value: "number",
 						},
 						{
-							Name:  "Black",
-							Value: "black",
+							Name:  "Color",
+							Value: "color",
 						},
 						{
-							Name:  "Green",
-							Value: "green",
+							Name:  "Even/Odd",
+							Value: "parity",
+						},
+						{
+							Name:  "High/Low",
+							Value: "range",
+						},
+						{
+							Name:  "Dozen",
+							Value: "dozen",
+						},
+						{
+							Name:  "Column",
+							Value: "column",
 						},
 					},
+				},
+				{
+					Name:        "value",
+					Description: "Value to bet on",
+					Type:        discordgo.ApplicationCommandOptionString,
+					Required:    true,
 				},
 			},
 		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
+		"help": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			helpText := "**Available Commands:**\n\n"
+			helpText += "`/balance` - Check your current balance\n"
+			helpText += "`/fountain` - Claim 50 coins (1 hour cooldown)\n\n"
+			helpText += "**Games:**\n"
+			helpText += "`/blackjack <bet>` - Play blackjack\n"
+			helpText += "`/roulette <bet> <type> <value>` - Play roulette\n\n"
+			helpText += "**Roulette Bet Types:**\n"
+			helpText += "- `number`: Bet on a single number (0-36), pays 35:1\n"
+			helpText += "- `color`: Bet on red/black/green, pays 2:1\n"
+			helpText += "- `parity`: Bet on even/odd, pays 2:1\n"
+			helpText += "- `range`: Bet on high(19-36)/low(1-18), pays 2:1\n"
+			helpText += "- `dozen`: Bet on 1st/2nd/3rd dozen, pays 3:1\n"
+			helpText += "- `column`: Bet on 1st/2nd/3rd column, pays 3:1\n\n"
+			helpText += footer
+
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: helpText,
+				},
+			})
+		},
 		"balance": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 			// if balance is not yet set, set it to 0
@@ -202,6 +251,17 @@ var (
 			})
 		},
 		"blackjack": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			// Check if user already has a game in progress
+			if game := blackjack.GetGame(i.Member.User.ID); game != nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You already have a game in progress! Finish it first.\n" + footer,
+					},
+				})
+				return
+			}
+
 			// Check if the user has enough balance
 			bal, err := db.Get(ctx, i.Member.User.ID).Result()
 			if err != nil {
@@ -257,7 +317,6 @@ var (
 				log.Printf("Error converting balance to int: %v", err)
 				return
 			}
-			fmt.Printf("User %s has balance %d\n", i.Member.User.ID, balInt)
 			bet := int(i.ApplicationCommandData().Options[0].IntValue())
 			if bet > balInt {
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -272,33 +331,153 @@ var (
 			balInt -= bet
 			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
 
-			value := ""
-			color := i.ApplicationCommandData().Options[1].StringValue()
-			switch color {
-			case "red":
-				value = "🟥⬛🟥⬛🟥⬛🟥"
-			case "black":
-				value = "⬛🟥⬛🟥⬛🟥⬛"
-			case "green":
-				value = "🟥⬛🟥⬛🟥⬛🟥"
-			default:
-				value = "?"
+			betType := i.ApplicationCommandData().Options[1].StringValue()
+			betValue := i.ApplicationCommandData().Options[2].StringValue()
 
+			// Validate bet value based on type
+			var validationError string
+			switch betType {
+			case "number":
+				num, err := strconv.Atoi(betValue)
+				if err != nil || num < 0 || num > 36 {
+					validationError = "Please enter a number between 0 and 36"
+				}
+			case "color":
+				if betValue != "red" && betValue != "black" && betValue != "green" {
+					validationError = "Please enter a valid color: red, black, or green"
+				}
+			case "parity":
+				if betValue != "even" && betValue != "odd" {
+					validationError = "Please enter either 'even' or 'odd'"
+				}
+			case "range":
+				if betValue != "high" && betValue != "low" {
+					validationError = "Please enter either 'high' or 'low'"
+				}
+			case "dozen":
+				dozen, err := strconv.Atoi(betValue)
+				if err != nil || dozen < 1 || dozen > 3 {
+					validationError = "Please enter a dozen number between 1 and 3"
+				}
+			case "column":
+				column, err := strconv.Atoi(betValue)
+				if err != nil || column < 1 || column > 3 {
+					validationError = "Please enter a column number between 1 and 3"
+				}
+			default:
+				validationError = "Invalid bet type"
 			}
+
+			if validationError != "" {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: fmt.Sprintf("Error: %s\n%s", validationError, footer),
+					},
+				})
+				return
+			}
+
+			// Generate random number between 0 and 36
+			result := randGen.Intn(37)
+			resultColor := "green"
+			if result != 0 {
+				if result%2 == 0 {
+					resultColor = "black"
+				} else {
+					resultColor = "red"
+				}
+			}
+
+			// Check if bet won
+			won := false
+			switch betType {
+			case "number":
+				num, err := strconv.Atoi(betValue)
+				if err == nil && num == result {
+					won = true
+					balInt += bet * 35 // 35:1 payout for single number
+				}
+			case "color":
+				if betValue == resultColor {
+					won = true
+					balInt += bet * 2 // 2:1 payout for color
+				}
+			case "parity":
+				if (betValue == "even" && result%2 == 0 && result != 0) ||
+					(betValue == "odd" && result%2 == 1) {
+					won = true
+					balInt += bet * 2 // 2:1 payout for even/odd
+				}
+			case "range":
+				if (betValue == "high" && result >= 19) ||
+					(betValue == "low" && result >= 1 && result <= 18) {
+					won = true
+					balInt += bet * 2 // 2:1 payout for high/low
+				}
+			case "dozen":
+				dozen, err := strconv.Atoi(betValue)
+				if err == nil && result > 0 {
+					if (dozen == 1 && result <= 12) ||
+						(dozen == 2 && result > 12 && result <= 24) ||
+						(dozen == 3 && result > 24) {
+						won = true
+						balInt += bet * 3 // 3:1 payout for dozen
+					}
+				}
+			case "column":
+				column, err := strconv.Atoi(betValue)
+				if err == nil && result > 0 {
+					// Real roulette column mapping
+					column1 := []int{3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36}
+					column2 := []int{2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35}
+					column3 := []int{1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34}
+
+					var inColumn bool
+					switch column {
+					case 1:
+						inColumn = contains(column1, result)
+					case 2:
+						inColumn = contains(column2, result)
+					case 3:
+						inColumn = contains(column3, result)
+					}
+
+					if inColumn {
+						won = true
+						balInt += bet * 3 // 3:1 payout for column
+					}
+				}
+			}
+
+			// Update balance
+			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
+
+			// Create wheel visualization
+			wheel := "```\n"
+			wheel += fmt.Sprintf("🎲 %d %s\n", result, resultColor)
+			wheel += "┌─────────────────┐\n"
+			wheel += "│  🟥⬛🟥⬛🟥⬛🟥  │\n"
+			wheel += "│  ⬛🟥⬛🟥⬛🟥⬛  │\n"
+			wheel += "│  🟥⬛🟥⬛🟥⬛🟥  │\n"
+			wheel += "└─────────────────┘\n"
+			wheel += "```"
+
+			// Create result message
+			resultMsg := fmt.Sprintf("You bet %s on %s\n", renderAmount(bet), betValue)
+			if won {
+				resultMsg += "🎉 **You won!**\n"
+			} else {
+				resultMsg += "😢 **You lost!**\n"
+			}
+			resultMsg += fmt.Sprintf("Your new balance is: %s\n%s", renderAmount(balInt), footer)
 
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: "You bet " + renderAmount(bet) + " on " + color + "\n" +
-						"Spinning the wheel...\n\n" +
-						"**Result:**\n# " +
-						value + "\n" +
-						"# ▪️▪️▪️🔺▪️▪️▪️\n" +
-						"**You lost!**\n" +
-						footer,
+					Content: wheel + "\n" + resultMsg,
 				},
 			})
-
 			return
 		},
 	}
@@ -307,6 +486,12 @@ var (
 		"hit": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			game := blackjack.GetGame(i.Member.User.ID)
 			if game == nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "No game in progress. Start a new game with /blackjack\n" + footer,
+					},
+				})
 				return
 			}
 			ok := game.Hit()
@@ -314,7 +499,7 @@ var (
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseUpdateMessage,
 					Data: &discordgo.InteractionResponseData{
-						Content: "```ansi\n\u001b[0;31mError 0x7065726E79: Quantum Entanglement Exception in Module 'HyperThreadedVoid'\n```\n" + footer,
+						Content: "Invalid move! The game has ended.\n" + footer,
 					},
 				})
 				return
@@ -331,6 +516,12 @@ var (
 		"stand": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			game := blackjack.GetGame(i.Member.User.ID)
 			if game == nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "No game in progress. Start a new game with /blackjack\n" + footer,
+					},
+				})
 				return
 			}
 			ok := game.Stand()
@@ -338,7 +529,7 @@ var (
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseUpdateMessage,
 					Data: &discordgo.InteractionResponseData{
-						Content: "```ansi\n\u001b[0;31mError 0x7065726E79: Quantum Entanglement Exception in Module 'HyperThreadedVoid'\n```\n" + footer,
+						Content: "Invalid move! The game has ended.\n" + footer,
 					},
 				})
 				return
@@ -419,4 +610,13 @@ func main() {
 	}
 
 	log.Println("Gracefully shutting down.")
+}
+
+func contains(slice []int, item int) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
