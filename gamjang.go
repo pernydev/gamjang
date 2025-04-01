@@ -351,7 +351,7 @@ var (
 				return
 			}
 			loan := int(i.ApplicationCommandData().Options[0].IntValue())
-			if loan > 100 {
+			if loan > 100 || balInt > 250 {
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
