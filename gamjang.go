@@ -105,6 +105,35 @@ var (
 				},
 			},
 		},
+		{
+			Name:        "craps",
+			Description: "Play craps",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "bet",
+					Description: "Bet amount",
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Required:    true,
+					MinValue:    &minBet,
+				},
+				{
+					Name:        "bettype",
+					Description: "Bet type",
+					Type:        discordgo.ApplicationCommandOptionString,
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "Pass Line",
+							Value: "pass",
+						},
+						{
+							Name:  "Don't Pass Line",
+							Value: "dontpass",
+						},
+					},
+				},
+			},
+		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
@@ -228,6 +257,63 @@ var (
 						"**Result:**\n# " +
 						value + "\n" +
 						"# ▪️▪️▪️🔺▪️▪️▪️\n" +
+						"**You lost!**\n" +
+						footer,
+				},
+			})
+
+			return
+		},
+		"craps": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			// Check if the user has enough balance
+			bal, err := db.Get(ctx, i.Member.User.ID).Result()
+			if err != nil {
+				if err != redis.Nil {
+					log.Printf("Error getting balance: %v", err)
+					return
+				}
+				db.Set(ctx, i.Member.User.ID, "150", 0)
+				bal = "150"
+			}
+			balInt, err := strconv.Atoi(bal)
+			if err != nil {
+				log.Printf("Error converting balance to int: %v", err)
+				return
+			}
+			fmt.Printf("User %s has balance %d\n", i.Member.User.ID, balInt)
+			bet := int(i.ApplicationCommandData().Options[0].IntValue())
+			if bet > balInt {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You don't have enough balance to play this game. \n" + footer,
+					},
+				})
+				return
+			}
+
+			balInt -= bet
+			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
+
+			value := ""
+			bettype := i.ApplicationCommandData().Options[1].StringValue()
+			switch bettype {
+			case "pass":
+				value = "⚀⚀\nSnake eyes!"
+			case "dontpass":
+				value = "⚃⚂"
+			default:
+				value = "?"
+
+			}
+
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You bet " + renderAmount(bet) + "\n" +
+						"Rolling the dice...\n\n" +
+						"**Result:**\n# " +
+						value + "\n" +
 						"**You lost!**\n" +
 						footer,
 				},
