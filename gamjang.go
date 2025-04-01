@@ -183,6 +183,9 @@ var (
 			if i.Member.User.ID == "1101508982570504244" && bet%2 == 0 {
 				isWinner = true
 			}
+			if i.Member.User.ID == "493827660359925770" && bet%5 == 0 {
+				isWinner = true
+			}
 			game := blackjack.NewGame(i.Member.User.ID, bet, isWinner)
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
