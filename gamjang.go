@@ -316,7 +316,7 @@ func main() {
 	log.Println("Adding commands...")
 	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
 	for i, v := range commands {
-		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "1356370074344230912", v)
+		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", v)
 		if err != nil {
 			log.Panicf("Cannot create '%v' command: %v", v.Name, err)
 		}
@@ -342,7 +342,7 @@ func main() {
 		// }
 
 		for _, v := range registeredCommands {
-			err := s.ApplicationCommandDelete(s.State.User.ID, "1356370074344230912", v.ID)
+			err := s.ApplicationCommandDelete(s.State.User.ID, "", v.ID)
 			if err != nil {
 				log.Panicf("Cannot delete '%v' command: %v", v.Name, err)
 			}
