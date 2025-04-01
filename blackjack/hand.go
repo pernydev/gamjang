@@ -1,7 +1,7 @@
 package blackjack
 
 type Hand struct {
-	Cards []*Card
+	Cards []Card
 }
 
 func (h *Hand) Total() int {
@@ -22,4 +22,8 @@ func (h *Hand) Total() int {
 	}
 
 	return total
+}
+
+func (h *Hand) AddCard(c Card) {
+	h.Cards = append(h.Cards, c)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
+	"github.com/pernydev/gamjang/blackjack"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -44,6 +45,10 @@ func renderAmount(amount int) string {
 	return fmt.Sprintf("**%d <:coin:1356375500632756224>**", amount)
 }
 
+func ptr(s string) *string {
+	return &s
+}
+
 var (
 	commands = []*discordgo.ApplicationCommand{
 		{
@@ -53,10 +58,55 @@ var (
 			// of the command.
 			Description: "Check your balance",
 		},
+		{
+			Name:        "blackjack",
+			Description: "Play blackjack",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "bet",
+					Description: "Bet amount",
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "roulette",
+			Description: "Play roulette",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "bet",
+					Description: "Bet amount",
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Required:    true,
+				},
+				{
+					Name:        "color",
+					Description: "Bet color",
+					Type:        discordgo.ApplicationCommandOptionString,
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "Red",
+							Value: "red",
+						},
+						{
+							Name:  "Black",
+							Value: "black",
+						},
+						{
+							Name:  "Green",
+							Value: "green",
+						},
+					},
+				},
+			},
+		},
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"balance": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
 			// if balance is not yet set, set it to 0
 			bal, err := db.Get(ctx, i.Member.User.ID).Result()
 			if err != nil {
@@ -64,7 +114,7 @@ var (
 					log.Printf("Error getting balance: %v", err)
 					return
 				}
-				db.Set(ctx, i.Member.User.ID, 0, 0)
+				db.Set(ctx, i.Member.User.ID, "150", 0)
 				bal = "150"
 			}
 
@@ -80,15 +130,177 @@ var (
 					Content: "Your current balance is: \n# " + renderAmount(balInt) + "\n" + footer,
 				},
 			})
+			return
+		},
+		"blackjack": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			// Check if the user has enough balance
+			bal, err := db.Get(ctx, i.Member.User.ID).Result()
+			if err != nil {
+				if err != redis.Nil {
+					log.Printf("Error getting balance: %v", err)
+					return
+				}
+				db.Set(ctx, i.Member.User.ID, "150", 0)
+				bal = "150"
+			}
+			balInt, err := strconv.Atoi(bal)
+			if err != nil {
+				log.Printf("Error converting balance to int: %v", err)
+				return
+			}
+			fmt.Printf("User %s has balance %d\n", i.Member.User.ID, balInt)
+			bet := int(i.ApplicationCommandData().Options[0].IntValue())
+			if bet > balInt {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You don't have enough balance to play this game. \n" + footer,
+					},
+				})
+				return
+			}
+
+			balInt -= bet
+			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
+
+			game := blackjack.NewGame(i.Member.User.ID, int(i.ApplicationCommandData().Options[0].IntValue()))
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content:    game.Render() + footer,
+					Components: game.RenderButtons(),
+				},
+			})
+		},
+		"roulette": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			// Check if the user has enough balance
+			bal, err := db.Get(ctx, i.Member.User.ID).Result()
+			if err != nil {
+				if err != redis.Nil {
+					log.Printf("Error getting balance: %v", err)
+					return
+				}
+				db.Set(ctx, i.Member.User.ID, "150", 0)
+				bal = "150"
+			}
+			balInt, err := strconv.Atoi(bal)
+			if err != nil {
+				log.Printf("Error converting balance to int: %v", err)
+				return
+			}
+			fmt.Printf("User %s has balance %d\n", i.Member.User.ID, balInt)
+			bet := int(i.ApplicationCommandData().Options[0].IntValue())
+			if bet > balInt {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You don't have enough balance to play this game. \n" + footer,
+					},
+				})
+				return
+			}
+
+			balInt -= bet
+			db.Set(ctx, i.Member.User.ID, strconv.Itoa(balInt), 0)
+
+			value := ""
+			color := i.ApplicationCommandData().Options[1].StringValue()
+			switch color {
+			case "red":
+				value = "🟥⬛🟥⬛🟥⬛🟥"
+			case "black":
+				value = "⬛🟥⬛🟥⬛🟥⬛"
+			case "green":
+				value = "🟥⬛🟥⬛🟥⬛🟥"
+			default:
+				value = "?"
+
+			}
+
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You bet " + renderAmount(bet) + " on " + color + "\n" +
+						"Spinning the wheel...\n\n" +
+						"**Result:**\n# " +
+						value + "\n" +
+						"# ▪️▪️▪️🔺▪️▪️▪️\n" +
+						"**You lost!**\n" +
+						footer,
+				},
+			})
+
+			return
+		},
+	}
+
+	componentHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
+		"hit": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			game := blackjack.GetGame(i.Member.User.ID)
+			if game == nil {
+				return
+			}
+			ok := game.Hit()
+			if !ok {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseUpdateMessage,
+					Data: &discordgo.InteractionResponseData{
+						Content: "```ansi\n\u001b[0;31mError 0x7065726E79: Quantum Entanglement Exception in Module 'HyperThreadedVoid'\n```\n" + footer,
+					},
+				})
+				return
+			}
+			buttons := game.RenderButtons()
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseUpdateMessage,
+				Data: &discordgo.InteractionResponseData{
+					Content:    game.Render() + footer,
+					Components: buttons,
+				},
+			})
+		},
+		"stand": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			game := blackjack.GetGame(i.Member.User.ID)
+			if game == nil {
+				return
+			}
+			ok := game.Stand()
+			if !ok {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseUpdateMessage,
+					Data: &discordgo.InteractionResponseData{
+						Content: "```ansi\n\u001b[0;31mError 0x7065726E79: Quantum Entanglement Exception in Module 'HyperThreadedVoid'\n```\n" + footer,
+					},
+				})
+				return
+			}
+			buttons := game.RenderButtons()
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseUpdateMessage,
+				Data: &discordgo.InteractionResponseData{
+					Content:    game.Render() + footer,
+					Components: buttons,
+				},
+			})
 		},
 	}
 )
 
 func init() {
 	s.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
-			h(s, i)
+		if i.Type == discordgo.InteractionApplicationCommand {
+			if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
+				h(s, i)
+			}
+			return
 		}
+		fmt.Printf("Identifier: %v\n", i.MessageComponentData().CustomID)
+		h, ok := componentHandlers[i.MessageComponentData().CustomID]
+		if !ok {
+			log.Printf("Unknown component handler: %v", i.MessageComponentData().CustomID)
+			return
+		}
+		h(s, i)
 	})
 }
 
